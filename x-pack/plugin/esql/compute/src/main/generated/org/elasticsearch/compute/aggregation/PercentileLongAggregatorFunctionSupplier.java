@@ -8,35 +8,39 @@ import java.lang.Integer;
 import java.lang.Override;
 import java.lang.String;
 import java.util.List;
-import org.elasticsearch.common.util.BigArrays;
 import org.elasticsearch.compute.operator.DriverContext;
 
 /**
  * {@link AggregatorFunctionSupplier} implementation for {@link PercentileLongAggregator}.
- * This class is generated. Do not edit it.
+ * This class is generated. Edit {@code AggregatorFunctionSupplierImplementer} instead.
  */
 public final class PercentileLongAggregatorFunctionSupplier implements AggregatorFunctionSupplier {
-  private final BigArrays bigArrays;
-
-  private final List<Integer> channels;
-
   private final double percentile;
 
-  public PercentileLongAggregatorFunctionSupplier(BigArrays bigArrays, List<Integer> channels,
-      double percentile) {
-    this.bigArrays = bigArrays;
-    this.channels = channels;
+  public PercentileLongAggregatorFunctionSupplier(double percentile) {
     this.percentile = percentile;
   }
 
   @Override
-  public PercentileLongAggregatorFunction aggregator(DriverContext driverContext) {
+  public List<IntermediateStateDesc> nonGroupingIntermediateStateDesc() {
+    return PercentileLongAggregatorFunction.intermediateStateDesc();
+  }
+
+  @Override
+  public List<IntermediateStateDesc> groupingIntermediateStateDesc() {
+    return PercentileLongGroupingAggregatorFunction.intermediateStateDesc();
+  }
+
+  @Override
+  public PercentileLongAggregatorFunction aggregator(DriverContext driverContext,
+      List<Integer> channels) {
     return PercentileLongAggregatorFunction.create(driverContext, channels, percentile);
   }
 
   @Override
-  public PercentileLongGroupingAggregatorFunction groupingAggregator(DriverContext driverContext) {
-    return PercentileLongGroupingAggregatorFunction.create(channels, driverContext, bigArrays, percentile);
+  public PercentileLongGroupingAggregatorFunction groupingAggregator(DriverContext driverContext,
+      List<Integer> channels) {
+    return PercentileLongGroupingAggregatorFunction.create(channels, driverContext, percentile);
   }
 
   @Override

@@ -14,7 +14,7 @@ import org.elasticsearch.core.Releasables;
 
 /**
  * Builder for {@link BytesRefVector}s that grows as needed.
- * This class is generated. Do not edit it.
+ * This class is generated. Edit {@code X-VectorBuilder.java.st} instead.
  */
 final class BytesRefVectorBuilder extends AbstractVectorBuilder implements BytesRefVector.Builder {
 
@@ -67,7 +67,7 @@ final class BytesRefVectorBuilder extends AbstractVectorBuilder implements Bytes
              * still technically be open, meaning the calling code should close it
              * which will return all used memory to the breaker.
              */
-            blockFactory.adjustBreaker(vector.ramBytesUsed(), false);
+            blockFactory.adjustBreaker(vector.ramBytesUsed());
             Releasables.closeExpectNoException(values);
         } else {
             vector = new BytesRefArrayVector(values, valueCount, blockFactory);
@@ -79,7 +79,7 @@ final class BytesRefVectorBuilder extends AbstractVectorBuilder implements Bytes
              * still technically be open, meaning the calling code should close it
              * which will return all used memory to the breaker.
              */
-            blockFactory.adjustBreaker(vector.ramBytesUsed() - values.bigArraysRamBytesUsed(), false);
+            blockFactory.adjustBreaker(vector.ramBytesUsed() - values.bigArraysRamBytesUsed());
         }
         values = null;
         built();

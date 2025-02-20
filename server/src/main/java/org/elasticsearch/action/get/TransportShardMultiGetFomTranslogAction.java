@@ -1,9 +1,10 @@
 /*
  * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
- * or more contributor license agreements. Licensed under the Elastic License
- * 2.0 and the Server Side Public License, v 1; you may not use this file except
- * in compliance with, at your election, the Elastic License 2.0 or the Server
- * Side Public License, v 1.
+ * or more contributor license agreements. Licensed under the "Elastic License
+ * 2.0", the "GNU Affero General Public License v3.0 only", and the "Server Side
+ * Public License v 1"; you may not use this file except in compliance with, at
+ * your election, the "Elastic License 2.0", the "GNU Affero General Public
+ * License v3.0 only", or the "Server Side Public License, v 1".
  */
 
 package org.elasticsearch.action.get;
@@ -22,7 +23,6 @@ import org.elasticsearch.common.io.stream.StreamInput;
 import org.elasticsearch.common.io.stream.StreamOutput;
 import org.elasticsearch.index.IndexService;
 import org.elasticsearch.index.engine.Engine;
-import org.elasticsearch.index.engine.InternalEngine;
 import org.elasticsearch.index.shard.IndexShard;
 import org.elasticsearch.index.shard.ShardId;
 import org.elasticsearch.indices.IndicesService;
@@ -35,7 +35,6 @@ import org.elasticsearch.transport.TransportService;
 import java.io.IOException;
 import java.util.Objects;
 
-// TODO(ES-5727): add a retry mechanism to TransportShardMultiGetFromTranslogAction
 public class TransportShardMultiGetFomTranslogAction extends HandledTransportAction<
     TransportShardMultiGetFomTranslogAction.Request,
     TransportShardMultiGetFomTranslogAction.Response> {
@@ -102,7 +101,7 @@ public class TransportShardMultiGetFomTranslogAction extends HandledTransportAct
                 if (engine == null) {
                     throw new AlreadyClosedException("engine closed");
                 }
-                segmentGeneration = ((InternalEngine) engine).getLastUnsafeSegmentGenerationForGets();
+                segmentGeneration = engine.getLastUnsafeSegmentGenerationForGets();
             }
             return new Response(multiGetShardResponse, indexShard.getOperationPrimaryTerm(), segmentGeneration);
         });
@@ -179,16 +178,14 @@ public class TransportShardMultiGetFomTranslogAction extends HandledTransportAct
             super(in);
             segmentGeneration = in.readZLong();
             multiGetShardResponse = new MultiGetShardResponse(in);
-            primaryTerm = in.getTransportVersion().onOrAfter(TransportVersions.PRIMARY_TERM_ADDED)
-                ? in.readVLong()
-                : Engine.UNKNOWN_PRIMARY_TERM;
+            primaryTerm = in.getTransportVersion().onOrAfter(TransportVersions.V_8_12_0) ? in.readVLong() : Engine.UNKNOWN_PRIMARY_TERM;
         }
 
         @Override
         public void writeTo(StreamOutput out) throws IOException {
             out.writeZLong(segmentGeneration);
             multiGetShardResponse.writeTo(out);
-            if (out.getTransportVersion().onOrAfter(TransportVersions.PRIMARY_TERM_ADDED)) {
+            if (out.getTransportVersion().onOrAfter(TransportVersions.V_8_12_0)) {
                 out.writeVLong(primaryTerm);
             }
         }

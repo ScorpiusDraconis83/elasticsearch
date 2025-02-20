@@ -26,13 +26,14 @@ import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.index.IndexNotFoundException;
 import org.elasticsearch.index.IndexSettings;
 import org.elasticsearch.search.aggregations.AggregationBuilders;
-import org.elasticsearch.search.aggregations.Aggregations;
+import org.elasticsearch.search.aggregations.InternalAggregations;
 import org.elasticsearch.search.aggregations.metrics.Cardinality;
 import org.elasticsearch.search.builder.SearchSourceBuilder;
 import org.elasticsearch.xpack.core.ClientHelper;
 import org.elasticsearch.xpack.core.ml.dataframe.DataFrameAnalyticsConfig;
 import org.elasticsearch.xpack.core.ml.dataframe.analyses.FieldCardinalityConstraint;
 import org.elasticsearch.xpack.core.ml.utils.ExceptionsHelper;
+import org.elasticsearch.xpack.ml.MachineLearning;
 
 import java.util.Arrays;
 import java.util.Collections;
@@ -112,11 +113,6 @@ public class ExtractedFieldsDetectorFactory {
             return;
         }
 
-        ActionListener<SearchResponse> searchListener = ActionListener.wrap(
-            searchResponse -> buildFieldCardinalitiesMap(config, searchResponse, listener),
-            listener::onFailure
-        );
-
         SearchSourceBuilder searchSourceBuilder = new SearchSourceBuilder().size(0)
             .query(config.getSource().getParsedQuery())
             .runtimeMappings(config.getSource().getRuntimeMappings());
@@ -147,7 +143,7 @@ public class ExtractedFieldsDetectorFactory {
             client,
             TransportSearchAction.TYPE,
             searchRequest,
-            searchListener
+            listener.delegateFailureAndWrap((l, searchResponse) -> buildFieldCardinalitiesMap(config, searchResponse, l))
         );
     }
 
@@ -156,7 +152,7 @@ public class ExtractedFieldsDetectorFactory {
         SearchResponse searchResponse,
         ActionListener<Map<String, Long>> listener
     ) {
-        Aggregations aggs = searchResponse.getAggregations();
+        InternalAggregations aggs = searchResponse.getAggregations();
         if (aggs == null) {
             listener.onFailure(ExceptionsHelper.serverError("Unexpected null response when gathering field cardinalities"));
             return;
@@ -213,7 +209,7 @@ public class ExtractedFieldsDetectorFactory {
             }
         });
 
-        GetSettingsRequest getSettingsRequest = new GetSettingsRequest();
+        GetSettingsRequest getSettingsRequest = new GetSettingsRequest(MachineLearning.HARD_CODED_MACHINE_LEARNING_MASTER_NODE_TIMEOUT);
         getSettingsRequest.indices(index);
         getSettingsRequest.includeDefaults(true);
         getSettingsRequest.names(IndexSettings.MAX_DOCVALUE_FIELDS_SEARCH_SETTING.getKey());

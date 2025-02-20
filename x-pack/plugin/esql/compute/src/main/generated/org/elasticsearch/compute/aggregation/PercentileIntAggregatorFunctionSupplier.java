@@ -8,35 +8,39 @@ import java.lang.Integer;
 import java.lang.Override;
 import java.lang.String;
 import java.util.List;
-import org.elasticsearch.common.util.BigArrays;
 import org.elasticsearch.compute.operator.DriverContext;
 
 /**
  * {@link AggregatorFunctionSupplier} implementation for {@link PercentileIntAggregator}.
- * This class is generated. Do not edit it.
+ * This class is generated. Edit {@code AggregatorFunctionSupplierImplementer} instead.
  */
 public final class PercentileIntAggregatorFunctionSupplier implements AggregatorFunctionSupplier {
-  private final BigArrays bigArrays;
-
-  private final List<Integer> channels;
-
   private final double percentile;
 
-  public PercentileIntAggregatorFunctionSupplier(BigArrays bigArrays, List<Integer> channels,
-      double percentile) {
-    this.bigArrays = bigArrays;
-    this.channels = channels;
+  public PercentileIntAggregatorFunctionSupplier(double percentile) {
     this.percentile = percentile;
   }
 
   @Override
-  public PercentileIntAggregatorFunction aggregator(DriverContext driverContext) {
+  public List<IntermediateStateDesc> nonGroupingIntermediateStateDesc() {
+    return PercentileIntAggregatorFunction.intermediateStateDesc();
+  }
+
+  @Override
+  public List<IntermediateStateDesc> groupingIntermediateStateDesc() {
+    return PercentileIntGroupingAggregatorFunction.intermediateStateDesc();
+  }
+
+  @Override
+  public PercentileIntAggregatorFunction aggregator(DriverContext driverContext,
+      List<Integer> channels) {
     return PercentileIntAggregatorFunction.create(driverContext, channels, percentile);
   }
 
   @Override
-  public PercentileIntGroupingAggregatorFunction groupingAggregator(DriverContext driverContext) {
-    return PercentileIntGroupingAggregatorFunction.create(channels, driverContext, bigArrays, percentile);
+  public PercentileIntGroupingAggregatorFunction groupingAggregator(DriverContext driverContext,
+      List<Integer> channels) {
+    return PercentileIntGroupingAggregatorFunction.create(channels, driverContext, percentile);
   }
 
   @Override

@@ -6,8 +6,13 @@
 
 preview::[]
 
-The time series aggregation queries data created using a time series index. This is typically data such as metrics
+The time series aggregation queries data created using a <<tsds,Time series data stream (TSDS)>>. This is typically data such as metrics
 or other data streams with a time component, and requires creating an index using the time series mode.
+
+[NOTE]
+====
+Refer to the <<differences-from-regular-data-stream, TSDS documentation>> to learn more about the key differences from regular data streams.
+====
 
 //////////////////////////
 
@@ -97,3 +102,14 @@ further. Alternatively, using sub aggregations can limit the amount of values re
 
 The `keyed` parameter determines if buckets are returned as a map with unique keys per bucket. By default with `keyed`
 set to false, buckets are returned as an array.
+
+[[times-series-aggregations-limitations]]
+==== Limitations
+
+The `time_series` aggregation has many limitations. Many aggregation performance optimizations are disabled when using
+the `time_series` aggregation. For example the filter by filter optimization or collect mode breath first (`terms` and
+`multi_terms` aggregation forcefully use the depth first collect mode).
+
+The following aggregations also fail to work if used in combination with the `time_series` aggregation:
+`auto_date_histogram`, `variable_width_histogram`, `rare_terms`, `global`, `composite`, `sampler`, `random_sampler` and
+`diversified_sampler`.

@@ -1,14 +1,14 @@
 /*
  * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
- * or more contributor license agreements. Licensed under the Elastic License
- * 2.0 and the Server Side Public License, v 1; you may not use this file except
- * in compliance with, at your election, the Elastic License 2.0 or the Server
- * Side Public License, v 1.
+ * or more contributor license agreements. Licensed under the "Elastic License
+ * 2.0", the "GNU Affero General Public License v3.0 only", and the "Server Side
+ * Public License v 1"; you may not use this file except in compliance with, at
+ * your election, the "Elastic License 2.0", the "GNU Affero General Public
+ * License v3.0 only", or the "Server Side Public License, v 1".
  */
 
 package org.elasticsearch.common.xcontent;
 
-import org.elasticsearch.common.TriConsumer;
 import org.elasticsearch.common.logging.DeprecationCategory;
 import org.elasticsearch.common.logging.DeprecationLogger;
 import org.elasticsearch.xcontent.DeprecationHandler;
@@ -43,16 +43,6 @@ public class LoggingDeprecationHandler implements DeprecationHandler {
         INSTANCE
     );
 
-    private TriConsumer<String, Object[], String> deprecationLoggerFunction = (message, params, field_name) -> deprecationLogger.warn(
-        DeprecationCategory.API,
-        "deprecated_field_" + field_name,
-        message,
-        params
-    );
-
-    private TriConsumer<String, Object[], String> compatibleLoggerFunction = (message, params, field_name) -> deprecationLogger
-        .compatibleCritical("deprecated_field_" + field_name, message, params);
-
     private LoggingDeprecationHandler() {
         // one instance only
     }
@@ -81,8 +71,8 @@ public class LoggingDeprecationHandler implements DeprecationHandler {
         boolean isCompatibleDeprecation
     ) {
         String prefix = parserLocation(parserName, location);
-        TriConsumer<String, Object[], String> loggingFunction = getLoggingFunction(isCompatibleDeprecation);
-        loggingFunction.apply(
+        log(
+            isCompatibleDeprecation,
             "{}Deprecated field [{}] used, expected [{}] instead",
             new Object[] { prefix, oldName, currentName },
             oldName
@@ -98,8 +88,12 @@ public class LoggingDeprecationHandler implements DeprecationHandler {
         boolean isCompatibleDeprecation
     ) {
         String prefix = parserLocation(parserName, location);
-        TriConsumer<String, Object[], String> loggingFunction = getLoggingFunction(isCompatibleDeprecation);
-        loggingFunction.apply("{}Deprecated field [{}] used, replaced by [{}]", new Object[] { prefix, oldName, replacedName }, oldName);
+        log(
+            isCompatibleDeprecation,
+            "{}Deprecated field [{}] used, replaced by [{}]",
+            new Object[] { prefix, oldName, replacedName },
+            oldName
+        );
     }
 
     @Override
@@ -110,8 +104,8 @@ public class LoggingDeprecationHandler implements DeprecationHandler {
         boolean isCompatibleDeprecation
     ) {
         String prefix = parserLocation(parserName, location);
-        TriConsumer<String, Object[], String> loggingFunction = getLoggingFunction(isCompatibleDeprecation);
-        loggingFunction.apply(
+        log(
+            isCompatibleDeprecation,
             "{}Deprecated field [{}] used, this field is unused and will be removed entirely",
             new Object[] { prefix, removedName },
             removedName
@@ -123,11 +117,11 @@ public class LoggingDeprecationHandler implements DeprecationHandler {
         return parserName == null ? "" : "[" + parserName + "][" + location.get() + "] ";
     }
 
-    private TriConsumer<String, Object[], String> getLoggingFunction(boolean isCompatibleDeprecation) {
+    private static void log(boolean isCompatibleDeprecation, String message, Object[] params, String fieldName) {
         if (isCompatibleDeprecation) {
-            return compatibleLoggerFunction;
+            deprecationLogger.compatibleCritical("deprecated_field_" + fieldName, message, params);
         } else {
-            return deprecationLoggerFunction;
+            deprecationLogger.warn(DeprecationCategory.API, "deprecated_field_" + fieldName, message, params);
         }
     }
 }
