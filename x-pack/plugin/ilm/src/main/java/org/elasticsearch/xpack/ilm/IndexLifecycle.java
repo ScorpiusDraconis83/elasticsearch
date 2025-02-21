@@ -14,12 +14,14 @@ import org.elasticsearch.client.internal.OriginSettingClient;
 import org.elasticsearch.cluster.metadata.IndexNameExpressionResolver;
 import org.elasticsearch.cluster.metadata.Metadata;
 import org.elasticsearch.cluster.node.DiscoveryNodes;
+import org.elasticsearch.common.io.stream.NamedWriteableRegistry;
 import org.elasticsearch.common.settings.ClusterSettings;
 import org.elasticsearch.common.settings.IndexScopedSettings;
 import org.elasticsearch.common.settings.Setting;
 import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.common.settings.SettingsFilter;
 import org.elasticsearch.core.IOUtils;
+import org.elasticsearch.features.NodeFeature;
 import org.elasticsearch.health.HealthIndicatorService;
 import org.elasticsearch.index.IndexModule;
 import org.elasticsearch.license.XPackLicenseState;
@@ -89,10 +91,10 @@ import org.elasticsearch.xpack.ilm.history.ILMHistoryTemplateRegistry;
 import java.io.IOException;
 import java.time.Clock;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
 import java.util.function.LongSupplier;
+import java.util.function.Predicate;
 import java.util.function.Supplier;
 
 import static org.elasticsearch.xpack.core.ClientHelper.INDEX_LIFECYCLE_ORIGIN;
@@ -118,7 +120,7 @@ public class IndexLifecycle extends Plugin implements ActionPlugin, HealthPlugin
 
     @Override
     public List<Setting<?>> getSettings() {
-        return Arrays.asList(
+        return List.of(
             LifecycleSettings.LIFECYCLE_POLL_INTERVAL_SETTING,
             LifecycleSettings.LIFECYCLE_NAME_SETTING,
             LifecycleSettings.LIFECYCLE_INDEXING_COMPLETE_SETTING,
@@ -143,7 +145,6 @@ public class IndexLifecycle extends Plugin implements ActionPlugin, HealthPlugin
         ILMHistoryTemplateRegistry ilmTemplateRegistry = new ILMHistoryTemplateRegistry(
             settings,
             services.clusterService(),
-            services.featureService(),
             services.threadPool(),
             services.client(),
             services.xContentRegistry()
@@ -201,7 +202,7 @@ public class IndexLifecycle extends Plugin implements ActionPlugin, HealthPlugin
     }
 
     private static List<NamedXContentRegistry.Entry> xContentEntries() {
-        return Arrays.asList(
+        return List.of(
             // Custom Metadata
             new NamedXContentRegistry.Entry(
                 Metadata.Custom.class,
@@ -248,59 +249,47 @@ public class IndexLifecycle extends Plugin implements ActionPlugin, HealthPlugin
     @Override
     public List<RestHandler> getRestHandlers(
         Settings unused,
+        NamedWriteableRegistry namedWriteableRegistry,
         RestController restController,
         ClusterSettings clusterSettings,
         IndexScopedSettings indexScopedSettings,
         SettingsFilter settingsFilter,
         IndexNameExpressionResolver indexNameExpressionResolver,
-        Supplier<DiscoveryNodes> nodesInCluster
+        Supplier<DiscoveryNodes> nodesInCluster,
+        Predicate<NodeFeature> clusterSupportsFeature
     ) {
-        List<RestHandler> handlers = new ArrayList<>();
-
-        handlers.addAll(
-            Arrays.asList(
-                // add ILM rest handlers
-                new RestPutLifecycleAction(),
-                new RestGetLifecycleAction(),
-                new RestDeleteLifecycleAction(),
-                new RestExplainLifecycleAction(),
-                new RestRemoveIndexLifecyclePolicyAction(),
-                new RestMoveToStepAction(),
-                new RestRetryAction(),
-                new RestStopAction(),
-                new RestStartILMAction(),
-                new RestGetStatusAction(),
-                new RestMigrateToDataTiersAction()
-            )
+        return List.of(
+            new RestPutLifecycleAction(),
+            new RestGetLifecycleAction(),
+            new RestDeleteLifecycleAction(),
+            new RestExplainLifecycleAction(),
+            new RestRemoveIndexLifecyclePolicyAction(),
+            new RestMoveToStepAction(),
+            new RestRetryAction(),
+            new RestStopAction(),
+            new RestStartILMAction(),
+            new RestGetStatusAction(),
+            new RestMigrateToDataTiersAction()
         );
-        return handlers;
     }
 
     @Override
     public List<ActionHandler<? extends ActionRequest, ? extends ActionResponse>> getActions() {
-        var ilmUsageAction = new ActionHandler<>(XPackUsageFeatureAction.INDEX_LIFECYCLE, IndexLifecycleUsageTransportAction.class);
-        var ilmInfoAction = new ActionHandler<>(XPackInfoFeatureAction.INDEX_LIFECYCLE, IndexLifecycleInfoTransportAction.class);
-        var migrateToDataTiersAction = new ActionHandler<>(MigrateToDataTiersAction.INSTANCE, TransportMigrateToDataTiersAction.class);
-        List<ActionHandler<? extends ActionRequest, ? extends ActionResponse>> actions = new ArrayList<>();
-        actions.add(ilmUsageAction);
-        actions.add(ilmInfoAction);
-        actions.add(migrateToDataTiersAction);
-        actions.addAll(
-            Arrays.asList(
-                // add ILM actions
-                new ActionHandler<>(ILMActions.PUT, TransportPutLifecycleAction.class),
-                new ActionHandler<>(GetLifecycleAction.INSTANCE, TransportGetLifecycleAction.class),
-                new ActionHandler<>(DeleteLifecycleAction.INSTANCE, TransportDeleteLifecycleAction.class),
-                new ActionHandler<>(ExplainLifecycleAction.INSTANCE, TransportExplainLifecycleAction.class),
-                new ActionHandler<>(RemoveIndexLifecyclePolicyAction.INSTANCE, TransportRemoveIndexLifecyclePolicyAction.class),
-                new ActionHandler<>(ILMActions.MOVE_TO_STEP, TransportMoveToStepAction.class),
-                new ActionHandler<>(ILMActions.RETRY, TransportRetryAction.class),
-                new ActionHandler<>(ILMActions.START, TransportStartILMAction.class),
-                new ActionHandler<>(ILMActions.STOP, TransportStopILMAction.class),
-                new ActionHandler<>(GetStatusAction.INSTANCE, TransportGetStatusAction.class)
-            )
+        return List.of(
+            new ActionHandler<>(XPackUsageFeatureAction.INDEX_LIFECYCLE, IndexLifecycleUsageTransportAction.class),
+            new ActionHandler<>(XPackInfoFeatureAction.INDEX_LIFECYCLE, IndexLifecycleInfoTransportAction.class),
+            new ActionHandler<>(MigrateToDataTiersAction.INSTANCE, TransportMigrateToDataTiersAction.class),
+            new ActionHandler<>(ILMActions.PUT, TransportPutLifecycleAction.class),
+            new ActionHandler<>(GetLifecycleAction.INSTANCE, TransportGetLifecycleAction.class),
+            new ActionHandler<>(DeleteLifecycleAction.INSTANCE, TransportDeleteLifecycleAction.class),
+            new ActionHandler<>(ExplainLifecycleAction.INSTANCE, TransportExplainLifecycleAction.class),
+            new ActionHandler<>(RemoveIndexLifecyclePolicyAction.INSTANCE, TransportRemoveIndexLifecyclePolicyAction.class),
+            new ActionHandler<>(ILMActions.MOVE_TO_STEP, TransportMoveToStepAction.class),
+            new ActionHandler<>(ILMActions.RETRY, TransportRetryAction.class),
+            new ActionHandler<>(ILMActions.START, TransportStartILMAction.class),
+            new ActionHandler<>(ILMActions.STOP, TransportStopILMAction.class),
+            new ActionHandler<>(GetStatusAction.INSTANCE, TransportGetStatusAction.class)
         );
-        return actions;
     }
 
     List<ReservedClusterStateHandler<?>> reservedClusterStateHandlers() {

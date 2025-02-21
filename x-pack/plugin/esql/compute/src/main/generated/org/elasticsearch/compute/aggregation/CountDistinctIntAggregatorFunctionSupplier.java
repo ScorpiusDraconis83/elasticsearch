@@ -8,36 +8,39 @@ import java.lang.Integer;
 import java.lang.Override;
 import java.lang.String;
 import java.util.List;
-import org.elasticsearch.common.util.BigArrays;
 import org.elasticsearch.compute.operator.DriverContext;
 
 /**
  * {@link AggregatorFunctionSupplier} implementation for {@link CountDistinctIntAggregator}.
- * This class is generated. Do not edit it.
+ * This class is generated. Edit {@code AggregatorFunctionSupplierImplementer} instead.
  */
 public final class CountDistinctIntAggregatorFunctionSupplier implements AggregatorFunctionSupplier {
-  private final BigArrays bigArrays;
-
-  private final List<Integer> channels;
-
   private final int precision;
 
-  public CountDistinctIntAggregatorFunctionSupplier(BigArrays bigArrays, List<Integer> channels,
-      int precision) {
-    this.bigArrays = bigArrays;
-    this.channels = channels;
+  public CountDistinctIntAggregatorFunctionSupplier(int precision) {
     this.precision = precision;
   }
 
   @Override
-  public CountDistinctIntAggregatorFunction aggregator(DriverContext driverContext) {
-    return CountDistinctIntAggregatorFunction.create(driverContext, channels, bigArrays, precision);
+  public List<IntermediateStateDesc> nonGroupingIntermediateStateDesc() {
+    return CountDistinctIntAggregatorFunction.intermediateStateDesc();
   }
 
   @Override
-  public CountDistinctIntGroupingAggregatorFunction groupingAggregator(
-      DriverContext driverContext) {
-    return CountDistinctIntGroupingAggregatorFunction.create(channels, driverContext, bigArrays, precision);
+  public List<IntermediateStateDesc> groupingIntermediateStateDesc() {
+    return CountDistinctIntGroupingAggregatorFunction.intermediateStateDesc();
+  }
+
+  @Override
+  public CountDistinctIntAggregatorFunction aggregator(DriverContext driverContext,
+      List<Integer> channels) {
+    return CountDistinctIntAggregatorFunction.create(driverContext, channels, precision);
+  }
+
+  @Override
+  public CountDistinctIntGroupingAggregatorFunction groupingAggregator(DriverContext driverContext,
+      List<Integer> channels) {
+    return CountDistinctIntGroupingAggregatorFunction.create(channels, driverContext, precision);
   }
 
   @Override

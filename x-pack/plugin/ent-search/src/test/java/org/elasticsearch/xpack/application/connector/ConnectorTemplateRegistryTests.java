@@ -7,13 +7,12 @@
 
 package org.elasticsearch.xpack.application.connector;
 
-import org.elasticsearch.Version;
 import org.elasticsearch.action.ActionListener;
 import org.elasticsearch.action.ActionRequest;
 import org.elasticsearch.action.ActionResponse;
 import org.elasticsearch.action.ActionType;
 import org.elasticsearch.action.admin.indices.template.put.PutComponentTemplateAction;
-import org.elasticsearch.action.admin.indices.template.put.PutComposableIndexTemplateAction;
+import org.elasticsearch.action.admin.indices.template.put.TransportPutComposableIndexTemplateAction;
 import org.elasticsearch.action.ingest.PutPipelineTransportAction;
 import org.elasticsearch.action.support.master.AcknowledgedResponse;
 import org.elasticsearch.cluster.ClusterChangedEvent;
@@ -31,7 +30,6 @@ import org.elasticsearch.common.TriFunction;
 import org.elasticsearch.common.bytes.BytesArray;
 import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.core.Strings;
-import org.elasticsearch.features.FeatureService;
 import org.elasticsearch.ingest.IngestMetadata;
 import org.elasticsearch.ingest.PipelineConfiguration;
 import org.elasticsearch.test.ClusterServiceUtils;
@@ -41,7 +39,6 @@ import org.elasticsearch.threadpool.TestThreadPool;
 import org.elasticsearch.threadpool.ThreadPool;
 import org.elasticsearch.xcontent.NamedXContentRegistry;
 import org.elasticsearch.xcontent.XContentType;
-import org.elasticsearch.xpack.application.EnterpriseSearchFeatures;
 import org.elasticsearch.xpack.core.ilm.IndexLifecycleMetadata;
 import org.elasticsearch.xpack.core.ilm.LifecyclePolicy;
 import org.elasticsearch.xpack.core.ilm.LifecyclePolicyMetadata;
@@ -66,6 +63,7 @@ import static org.hamcrest.Matchers.greaterThan;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.instanceOf;
 import static org.hamcrest.Matchers.oneOf;
+import static org.hamcrest.Matchers.sameInstance;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.when;
@@ -80,8 +78,7 @@ public class ConnectorTemplateRegistryTests extends ESTestCase {
         threadPool = new TestThreadPool(this.getClass().getName());
         client = new VerifyingClient(threadPool);
         ClusterService clusterService = ClusterServiceUtils.createClusterService(threadPool);
-        FeatureService featureService = new FeatureService(List.of(new EnterpriseSearchFeatures()));
-        registry = new ConnectorTemplateRegistry(clusterService, featureService, threadPool, client, NamedXContentRegistry.EMPTY);
+        registry = new ConnectorTemplateRegistry(clusterService, threadPool, client, NamedXContentRegistry.EMPTY);
     }
 
     @After
@@ -135,10 +132,7 @@ public class ConnectorTemplateRegistryTests extends ESTestCase {
         ClusterChangedEvent event = createClusterChangedEvent(
             Collections.emptyMap(),
             Collections.emptyMap(),
-            Collections.singletonMap(
-                ConnectorTemplateRegistry.ENT_SEARCH_GENERIC_PIPELINE_NAME,
-                ConnectorTemplateRegistry.REGISTRY_VERSION
-            ),
+            Collections.singletonMap(ConnectorTemplateRegistry.SEARCH_DEFAULT_PIPELINE_NAME, ConnectorTemplateRegistry.REGISTRY_VERSION),
             Collections.emptyMap(),
             nodes
         );
@@ -172,10 +166,7 @@ public class ConnectorTemplateRegistryTests extends ESTestCase {
                 ConnectorTemplateRegistry.CONNECTOR_TEMPLATE_NAME + "-settings",
                 ConnectorTemplateRegistry.REGISTRY_VERSION - 1
             ),
-            Collections.singletonMap(
-                ConnectorTemplateRegistry.ENT_SEARCH_GENERIC_PIPELINE_NAME,
-                ConnectorTemplateRegistry.REGISTRY_VERSION
-            ),
+            Collections.singletonMap(ConnectorTemplateRegistry.SEARCH_DEFAULT_PIPELINE_NAME, ConnectorTemplateRegistry.REGISTRY_VERSION),
             Collections.emptyMap(),
             nodes
         );
@@ -192,10 +183,7 @@ public class ConnectorTemplateRegistryTests extends ESTestCase {
         ClusterChangedEvent event = createClusterChangedEvent(
             Collections.emptyMap(),
             Collections.singletonMap(ConnectorTemplateRegistry.CONNECTOR_TEMPLATE_NAME + "-mappings", null),
-            Collections.singletonMap(
-                ConnectorTemplateRegistry.ENT_SEARCH_GENERIC_PIPELINE_NAME,
-                ConnectorTemplateRegistry.REGISTRY_VERSION
-            ),
+            Collections.singletonMap(ConnectorTemplateRegistry.SEARCH_DEFAULT_PIPELINE_NAME, ConnectorTemplateRegistry.REGISTRY_VERSION),
             Collections.emptyMap(),
             nodes
         );
@@ -227,7 +215,7 @@ public class ConnectorTemplateRegistryTests extends ESTestCase {
             } else if (action == ILMActions.PUT) {
                 // Ignore this, it's verified in another test
                 return AcknowledgedResponse.TRUE;
-            } else if (action instanceof PutComposableIndexTemplateAction) {
+            } else if (action == TransportPutComposableIndexTemplateAction.TYPE) {
                 // Ignore this, it's verified in another test
                 return AcknowledgedResponse.TRUE;
             } else {
@@ -295,7 +283,7 @@ public class ConnectorTemplateRegistryTests extends ESTestCase {
             } else if (action == ILMActions.PUT) {
                 // Ignore this, it's verified in another test
                 return AcknowledgedResponse.TRUE;
-            } else if (action instanceof PutComposableIndexTemplateAction) {
+            } else if (action == TransportPutComposableIndexTemplateAction.TYPE) {
                 // Ignore this, it's verified in another test
                 return AcknowledgedResponse.TRUE;
             } else {
@@ -307,25 +295,6 @@ public class ConnectorTemplateRegistryTests extends ESTestCase {
         ClusterChangedEvent event = createClusterChangedEvent(Collections.emptyMap(), Collections.emptyMap(), nodes);
         registry.clusterChanged(event);
         assertBusy(() -> assertThat(calledTimes.get(), equalTo(registry.getIngestPipelines().size())));
-    }
-
-    public void testThatNothingIsInstalledWhenAllNodesAreNotUpdated() {
-        DiscoveryNode updatedNode = DiscoveryNodeUtils.create("updatedNode");
-        DiscoveryNode outdatedNode = DiscoveryNodeUtils.create("outdatedNode", ESTestCase.buildNewFakeTransportAddress(), Version.V_8_9_0);
-        DiscoveryNodes nodes = DiscoveryNodes.builder()
-            .localNodeId("updatedNode")
-            .masterNodeId("updatedNode")
-            .add(updatedNode)
-            .add(outdatedNode)
-            .build();
-
-        client.setVerifier((a, r, l) -> {
-            fail("if some cluster mode are not updated to at least v.8.10.0 nothing should happen");
-            return null;
-        });
-
-        ClusterChangedEvent event = createClusterChangedEvent(Collections.emptyMap(), Collections.emptyMap(), nodes);
-        registry.clusterChanged(event);
     }
 
     // -------------
@@ -379,11 +348,12 @@ public class ConnectorTemplateRegistryTests extends ESTestCase {
         } else if (action == ILMActions.PUT) {
             // Ignore this, it's verified in another test
             return AcknowledgedResponse.TRUE;
-        } else if (action instanceof PutComposableIndexTemplateAction) {
+        } else if (action == TransportPutComposableIndexTemplateAction.TYPE) {
             calledTimes.incrementAndGet();
-            assertThat(action, instanceOf(PutComposableIndexTemplateAction.class));
-            assertThat(request, instanceOf(PutComposableIndexTemplateAction.Request.class));
-            final PutComposableIndexTemplateAction.Request putRequest = (PutComposableIndexTemplateAction.Request) request;
+            assertThat(action, sameInstance(TransportPutComposableIndexTemplateAction.TYPE));
+            assertThat(request, instanceOf(TransportPutComposableIndexTemplateAction.Request.class));
+            final TransportPutComposableIndexTemplateAction.Request putRequest =
+                (TransportPutComposableIndexTemplateAction.Request) request;
             assertThat(putRequest.indexTemplate().version(), equalTo((long) ConnectorTemplateRegistry.REGISTRY_VERSION));
             final List<String> indexPatterns = putRequest.indexTemplate().indexPatterns();
             assertThat(indexPatterns, hasSize(1));
@@ -419,7 +389,7 @@ public class ConnectorTemplateRegistryTests extends ESTestCase {
         } else if (action == ILMActions.PUT) {
             // Ignore this, it's verified in another test
             return AcknowledgedResponse.TRUE;
-        } else if (action instanceof PutComposableIndexTemplateAction) {
+        } else if (action == TransportPutComposableIndexTemplateAction.TYPE) {
             // Ignore this, it's verified in another test
             return AcknowledgedResponse.TRUE;
         } else {

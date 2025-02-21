@@ -1,9 +1,10 @@
 /*
  * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
- * or more contributor license agreements. Licensed under the Elastic License
- * 2.0 and the Server Side Public License, v 1; you may not use this file except
- * in compliance with, at your election, the Elastic License 2.0 or the Server
- * Side Public License, v 1.
+ * or more contributor license agreements. Licensed under the "Elastic License
+ * 2.0", the "GNU Affero General Public License v3.0 only", and the "Server Side
+ * Public License v 1"; you may not use this file except in compliance with, at
+ * your election, the "Elastic License 2.0", the "GNU Affero General Public
+ * License v3.0 only", or the "Server Side Public License, v 1".
  */
 
 package org.elasticsearch.index.mapper;
@@ -21,6 +22,7 @@ import org.elasticsearch.search.fetch.StoredFieldsSpec;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * Loads values from {@code _source}. This whole process is very slow and cast-tastic,
@@ -199,6 +201,27 @@ public abstract class BlockSourceReader implements BlockLoader.RowStrideReader {
         }
     }
 
+    public static class GeometriesBlockLoader extends SourceBlockLoader {
+        public GeometriesBlockLoader(ValueFetcher fetcher, LeafIteratorLookup lookup) {
+            super(fetcher, lookup);
+        }
+
+        @Override
+        public final Builder builder(BlockFactory factory, int expectedCount) {
+            return factory.bytesRefs(expectedCount);
+        }
+
+        @Override
+        protected RowStrideReader rowStrideReader(LeafReaderContext context, DocIdSetIterator iter) {
+            return new Geometries(fetcher, iter);
+        }
+
+        @Override
+        protected String name() {
+            return "Geometries";
+        }
+    }
+
     private static class BytesRefs extends BlockSourceReader {
         private final BytesRef scratch = new BytesRef();
 
@@ -208,12 +231,33 @@ public abstract class BlockSourceReader implements BlockLoader.RowStrideReader {
 
         @Override
         protected void append(BlockLoader.Builder builder, Object v) {
-            ((BlockLoader.BytesRefBuilder) builder).appendBytesRef(toBytesRef(scratch, (String) v));
+            ((BlockLoader.BytesRefBuilder) builder).appendBytesRef(toBytesRef(scratch, Objects.toString(v)));
         }
 
         @Override
         public String toString() {
             return "BlockSourceReader.Bytes";
+        }
+    }
+
+    private static class Geometries extends BlockSourceReader {
+
+        Geometries(ValueFetcher fetcher, DocIdSetIterator iter) {
+            super(fetcher, iter);
+        }
+
+        @Override
+        protected void append(BlockLoader.Builder builder, Object v) {
+            if (v instanceof byte[] wkb) {
+                ((BlockLoader.BytesRefBuilder) builder).appendBytesRef(new BytesRef(wkb));
+            } else {
+                throw new IllegalArgumentException("Unsupported source type for spatial geometry: " + v.getClass().getSimpleName());
+            }
+        }
+
+        @Override
+        public String toString() {
+            return "BlockSourceReader.Geometries";
         }
     }
 

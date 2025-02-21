@@ -1,9 +1,10 @@
 /*
  * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
- * or more contributor license agreements. Licensed under the Elastic License
- * 2.0 and the Server Side Public License, v 1; you may not use this file except
- * in compliance with, at your election, the Elastic License 2.0 or the Server
- * Side Public License, v 1.
+ * or more contributor license agreements. Licensed under the "Elastic License
+ * 2.0", the "GNU Affero General Public License v3.0 only", and the "Server Side
+ * Public License v 1"; you may not use this file except in compliance with, at
+ * your election, the "Elastic License 2.0", the "GNU Affero General Public
+ * License v3.0 only", or the "Server Side Public License, v 1".
  */
 
 package org.elasticsearch.test.rest.yaml;
@@ -17,15 +18,11 @@ import org.apache.logging.log4j.Logger;
 import org.apache.lucene.tests.util.TimeUnits;
 import org.elasticsearch.client.Node;
 import org.elasticsearch.client.Request;
-import org.elasticsearch.client.RequestOptions;
 import org.elasticsearch.client.Response;
 import org.elasticsearch.client.RestClient;
 import org.elasticsearch.client.RestClientBuilder;
-import org.elasticsearch.client.WarningsHandler;
 import org.elasticsearch.client.sniff.ElasticsearchNodesSniffer;
-import org.elasticsearch.cluster.metadata.IndexMetadata;
 import org.elasticsearch.common.Strings;
-import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.common.xcontent.support.XContentMapValues;
 import org.elasticsearch.core.IOUtils;
 import org.elasticsearch.test.ClasspathUtils;
@@ -37,11 +34,8 @@ import org.elasticsearch.test.rest.yaml.section.ClientYamlTestSection;
 import org.elasticsearch.test.rest.yaml.section.ClientYamlTestSuite;
 import org.elasticsearch.test.rest.yaml.section.ExecutableSection;
 import org.elasticsearch.xcontent.NamedXContentRegistry;
-import org.elasticsearch.xcontent.ToXContent;
-import org.elasticsearch.xcontent.XContentBuilder;
 import org.junit.AfterClass;
 import org.junit.Before;
-import org.junit.BeforeClass;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -61,8 +55,6 @@ import java.util.Set;
 import java.util.SortedSet;
 import java.util.TreeSet;
 import java.util.stream.Collectors;
-
-import static org.elasticsearch.xcontent.XContentFactory.jsonBuilder;
 
 /**
  * Runs a suite of yaml tests shared with all the official Elasticsearch
@@ -118,15 +110,6 @@ public abstract class ESClientYamlSuiteTestCase extends ESRestTestCase {
 
     protected ESClientYamlSuiteTestCase(ClientYamlTestCandidate testCandidate) {
         this.testCandidate = testCandidate;
-    }
-
-    private static Settings globalTemplateIndexSettings;
-
-    @BeforeClass
-    public static void initializeGlobalTemplateIndexSettings() {
-        globalTemplateIndexSettings = usually()
-            ? Settings.EMPTY
-            : Settings.builder().put(IndexMetadata.SETTING_NUMBER_OF_SHARDS, 2).build();
     }
 
     @Before
@@ -249,8 +232,15 @@ public abstract class ESClientYamlSuiteTestCase extends ESRestTestCase {
     /**
      * Create parameters for this parameterized test.
      */
+    public static Iterable<Object[]> createParameters(String[] testPaths, Map<String, Object> yamlParameters) throws Exception {
+        return createParameters(ExecutableSection.XCONTENT_REGISTRY, testPaths, yamlParameters);
+    }
+
+    /**
+     * Create parameters for this parameterized test.
+     */
     public static Iterable<Object[]> createParameters(String[] testPaths) throws Exception {
-        return createParameters(ExecutableSection.XCONTENT_REGISTRY, testPaths);
+        return createParameters(testPaths, Collections.emptyMap());
     }
 
     /**
@@ -263,6 +253,23 @@ public abstract class ESClientYamlSuiteTestCase extends ESRestTestCase {
      */
     public static Iterable<Object[]> createParameters(NamedXContentRegistry executeableSectionRegistry, String[] testPaths)
         throws Exception {
+        return createParameters(executeableSectionRegistry, testPaths, Collections.emptyMap());
+    }
+
+    /**
+     * Create parameters for this parameterized test.
+     *
+     * @param executeableSectionRegistry registry of executable sections
+     * @param testPaths list of paths to explicitly search for tests. If <code>null</code> then include all tests in root path.
+     * @param yamlParameters map or parameters used within the yaml specs to be replaced at parsing time.
+     * @return list of test candidates.
+     * @throws Exception
+     */
+    public static Iterable<Object[]> createParameters(
+        NamedXContentRegistry executeableSectionRegistry,
+        String[] testPaths,
+        Map<String, ?> yamlParameters
+    ) throws Exception {
         if (testPaths != null && System.getProperty(REST_TESTS_SUITE) != null) {
             throw new IllegalArgumentException("The '" + REST_TESTS_SUITE + "' system property is not supported with explicit test paths.");
         }
@@ -276,7 +283,7 @@ public abstract class ESClientYamlSuiteTestCase extends ESRestTestCase {
         for (String api : yamlSuites.keySet()) {
             List<Path> yamlFiles = new ArrayList<>(yamlSuites.get(api));
             for (Path yamlFile : yamlFiles) {
-                ClientYamlTestSuite suite = ClientYamlTestSuite.parse(executeableSectionRegistry, api, yamlFile);
+                ClientYamlTestSuite suite = ClientYamlTestSuite.parse(executeableSectionRegistry, api, yamlFile, yamlParameters);
                 suites.add(suite);
                 try {
                     suite.validate();
@@ -413,8 +420,7 @@ public abstract class ESClientYamlSuiteTestCase extends ESRestTestCase {
         ClientYamlTestResponse restTestResponse = new ClientYamlTestResponse(response);
         SortedSet<String> osPrettyNames = new TreeSet<>();
 
-        @SuppressWarnings("unchecked")
-        final Map<String, Object> nodes = (Map<String, Object>) restTestResponse.evaluate("nodes");
+        final Map<String, Object> nodes = restTestResponse.evaluate("nodes");
 
         for (Entry<String, Object> node : nodes.entrySet()) {
             @SuppressWarnings("unchecked")
@@ -446,20 +452,10 @@ public abstract class ESClientYamlSuiteTestCase extends ESRestTestCase {
         }
 
         // skip test if the whole suite (yaml file) is disabled
-        assumeFalse(
-            testCandidate.getSetupSection().getSkipSection().getSkipMessage(testCandidate.getSuitePath()),
-            testCandidate.getSetupSection().getSkipSection().skip(restTestExecutionContext)
-        );
-        // skip test if the whole suite (yaml file) is disabled
-        assumeFalse(
-            testCandidate.getTeardownSection().getSkipSection().getSkipMessage(testCandidate.getSuitePath()),
-            testCandidate.getTeardownSection().getSkipSection().skip(restTestExecutionContext)
-        );
+        testCandidate.getSetupSection().getPrerequisiteSection().evaluate(restTestExecutionContext, testCandidate.getSuitePath());
+        testCandidate.getTeardownSection().getPrerequisiteSection().evaluate(restTestExecutionContext, testCandidate.getSuitePath());
         // skip test if test section is disabled
-        assumeFalse(
-            testCandidate.getTestSection().getSkipSection().getSkipMessage(testCandidate.getTestPath()),
-            testCandidate.getTestSection().getSkipSection().skip(restTestExecutionContext)
-        );
+        testCandidate.getTestSection().getPrerequisiteSection().evaluate(restTestExecutionContext, testCandidate.getTestPath());
 
         // let's check that there is something to run, otherwise there might be a problem with the test section
         if (testCandidate.getTestSection().getExecutableSections().isEmpty()) {
@@ -468,36 +464,8 @@ public abstract class ESClientYamlSuiteTestCase extends ESRestTestCase {
 
         assumeFalse(
             "[" + testCandidate.getTestPath() + "] skipped, reason: in fips 140 mode",
-            inFipsJvm() && testCandidate.getTestSection().getSkipSection().yamlRunnerHasFeature("fips_140")
+            inFipsJvm() && testCandidate.getTestSection().getPrerequisiteSection().hasYamlRunnerFeature("fips_140")
         );
-
-        final Settings globalTemplateSettings = getGlobalTemplateSettings(
-            testCandidate.getTestSection().getSkipSection().yamlRunnerHasFeature("default_shards")
-        );
-        if (globalTemplateSettings.isEmpty() == false && ESRestTestCase.has(ProductFeature.LEGACY_TEMPLATES)) {
-
-            final XContentBuilder template = jsonBuilder();
-            template.startObject();
-            {
-                template.array("index_patterns", "*");
-                template.startObject("settings");
-                globalTemplateSettings.toXContent(template, ToXContent.EMPTY_PARAMS);
-                template.endObject();
-            }
-            template.endObject();
-
-            final Request request = new Request("PUT", "/_template/global");
-            request.setJsonEntity(Strings.toString(template));
-            // Because not all case have transitioned to a composable template, it's possible that
-            // this can overlap an installed composable template since this is a global (*)
-            // template. In order to avoid this failing the test, we override the warnings handler
-            // to be permissive in this case. This can be removed once all tests use composable
-            // templates instead of legacy templates
-            RequestOptions.Builder builder = RequestOptions.DEFAULT.toBuilder();
-            builder.setWarningsHandler(WarningsHandler.PERMISSIVE);
-            request.setOptions(builder.build());
-            adminClient().performRequest(request);
-        }
 
         if (skipSetupSections() == false && testCandidate.getSetupSection().isEmpty() == false) {
             logger.debug("start setup test [{}]", testCandidate.getTestPath());
@@ -519,23 +487,6 @@ public abstract class ESClientYamlSuiteTestCase extends ESRestTestCase {
                 executeSection(doSection);
             }
             logger.debug("end teardown test [{}]", testCandidate.getTestPath());
-        }
-    }
-
-    @Deprecated
-    protected Settings getGlobalTemplateSettings(List<String> features) {
-        if (features.contains("default_shards")) {
-            return Settings.EMPTY;
-        } else {
-            return globalTemplateIndexSettings;
-        }
-    }
-
-    protected Settings getGlobalTemplateSettings(boolean defaultShardsFeature) {
-        if (defaultShardsFeature) {
-            return Settings.EMPTY;
-        } else {
-            return globalTemplateIndexSettings;
         }
     }
 

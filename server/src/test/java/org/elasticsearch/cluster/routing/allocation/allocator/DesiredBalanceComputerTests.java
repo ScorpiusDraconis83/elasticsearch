@@ -1,9 +1,10 @@
 /*
  * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
- * or more contributor license agreements. Licensed under the Elastic License
- * 2.0 and the Server Side Public License, v 1; you may not use this file except
- * in compliance with, at your election, the Elastic License 2.0 or the Server
- * Side Public License, v 1.
+ * or more contributor license agreements. Licensed under the "Elastic License
+ * 2.0", the "GNU Affero General Public License v3.0 only", and the "Server Side
+ * Public License v 1"; you may not use this file except in compliance with, at
+ * your election, the "Elastic License 2.0", the "GNU Affero General Public
+ * License v3.0 only", or the "Server Side Public License, v 1".
  */
 
 package org.elasticsearch.cluster.routing.allocation.allocator;
@@ -41,6 +42,8 @@ import org.elasticsearch.cluster.routing.allocation.decider.ThrottlingAllocation
 import org.elasticsearch.common.Randomness;
 import org.elasticsearch.common.UUIDs;
 import org.elasticsearch.common.settings.Settings;
+import org.elasticsearch.common.time.TimeProvider;
+import org.elasticsearch.common.time.TimeProviderUtils;
 import org.elasticsearch.common.unit.ByteSizeValue;
 import org.elasticsearch.common.util.Maps;
 import org.elasticsearch.index.IndexVersion;
@@ -51,8 +54,7 @@ import org.elasticsearch.snapshots.InternalSnapshotsInfoService.SnapshotShard;
 import org.elasticsearch.snapshots.Snapshot;
 import org.elasticsearch.snapshots.SnapshotId;
 import org.elasticsearch.snapshots.SnapshotShardSizeInfo;
-import org.elasticsearch.test.MockLogAppender;
-import org.elasticsearch.threadpool.ThreadPool;
+import org.elasticsearch.test.MockLog;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -65,7 +67,6 @@ import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.function.Function;
 
 import static java.util.stream.Collectors.toMap;
 import static org.elasticsearch.cluster.ClusterInfo.shardIdentifierFromRouting;
@@ -74,8 +75,9 @@ import static org.elasticsearch.cluster.routing.ShardRoutingState.RELOCATING;
 import static org.elasticsearch.cluster.routing.ShardRoutingState.STARTED;
 import static org.elasticsearch.cluster.routing.ShardRoutingState.UNASSIGNED;
 import static org.elasticsearch.cluster.routing.TestShardRouting.newShardRouting;
+import static org.elasticsearch.cluster.routing.TestShardRouting.shardRoutingBuilder;
 import static org.elasticsearch.common.settings.ClusterSettings.createBuiltInClusterSettings;
-import static org.elasticsearch.test.MockLogAppender.assertThatLogger;
+import static org.elasticsearch.test.MockLog.assertThatLogger;
 import static org.hamcrest.Matchers.aMapWithSize;
 import static org.hamcrest.Matchers.allOf;
 import static org.hamcrest.Matchers.anyOf;
@@ -84,8 +86,6 @@ import static org.hamcrest.Matchers.everyItem;
 import static org.hamcrest.Matchers.hasEntry;
 import static org.hamcrest.Matchers.lessThanOrEqualTo;
 import static org.hamcrest.Matchers.notNullValue;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.when;
 
 public class DesiredBalanceComputerTests extends ESAllocationTestCase {
 
@@ -96,7 +96,12 @@ public class DesiredBalanceComputerTests extends ESAllocationTestCase {
         var clusterState = createInitialClusterState(3);
         var index = clusterState.metadata().index(TEST_INDEX).getIndex();
 
-        var desiredBalance = desiredBalanceComputer.compute(DesiredBalance.INITIAL, createInput(clusterState), queue(), input -> true);
+        var desiredBalance = desiredBalanceComputer.compute(
+            DesiredBalance.BECOME_MASTER_INITIAL,
+            createInput(clusterState),
+            queue(),
+            input -> true
+        );
 
         assertDesiredAssignments(
             desiredBalance,
@@ -115,7 +120,7 @@ public class DesiredBalanceComputerTests extends ESAllocationTestCase {
         var index = clusterState.metadata().index(TEST_INDEX).getIndex();
 
         // if the isFresh flag is false then we only do one iteration, allocating the primaries but not the replicas
-        var desiredBalance0 = DesiredBalance.INITIAL;
+        var desiredBalance0 = DesiredBalance.BECOME_MASTER_INITIAL;
         var desiredBalance1 = desiredBalanceComputer.compute(desiredBalance0, createInput(clusterState), queue(), input -> false);
         assertDesiredAssignments(
             desiredBalance1,
@@ -147,7 +152,7 @@ public class DesiredBalanceComputerTests extends ESAllocationTestCase {
         var primaryShard = mutateAllocationStatus(clusterState.routingTable().index(TEST_INDEX).shard(0).primaryShard());
 
         var desiredBalance = desiredBalanceComputer.compute(
-            DesiredBalance.INITIAL,
+            DesiredBalance.BECOME_MASTER_INITIAL,
             createInput(clusterState, primaryShard),
             queue(),
             input -> true
@@ -167,7 +172,7 @@ public class DesiredBalanceComputerTests extends ESAllocationTestCase {
                         .replicaShards()
                         .get(0)
                         .unassignedInfo()
-                        .getLastAllocationStatus() == UnassignedInfo.AllocationStatus.DECIDERS_NO ? 1 : 2
+                        .lastAllocationStatus() == UnassignedInfo.AllocationStatus.DECIDERS_NO ? 1 : 2
                 ),
                 new ShardId(index, 1),
                 new ShardAssignment(Set.of("node-0", "node-1"), 2, 0, 0)
@@ -184,7 +189,7 @@ public class DesiredBalanceComputerTests extends ESAllocationTestCase {
         var replicaShard = mutateAllocationStatus(originalReplicaShard);
 
         var desiredBalance = desiredBalanceComputer.compute(
-            DesiredBalance.INITIAL,
+            DesiredBalance.BECOME_MASTER_INITIAL,
             createInput(clusterState, replicaShard),
             queue(),
             input -> true
@@ -198,7 +203,7 @@ public class DesiredBalanceComputerTests extends ESAllocationTestCase {
                     Set.of("node-0"),
                     2,
                     1,
-                    originalReplicaShard.unassignedInfo().getLastAllocationStatus() == UnassignedInfo.AllocationStatus.DECIDERS_NO ? 0 : 1
+                    originalReplicaShard.unassignedInfo().lastAllocationStatus() == UnassignedInfo.AllocationStatus.DECIDERS_NO ? 0 : 1
                 ),
                 new ShardId(index, 1),
                 new ShardAssignment(Set.of("node-0", "node-1"), 2, 0, 0)
@@ -234,16 +239,14 @@ public class DesiredBalanceComputerTests extends ESAllocationTestCase {
                 );
             }
         }
-        clusterState = ClusterState.builder(clusterState)
-            .routingTable(RoutingTable.of(clusterState.routingTable().version(), routingNodes))
-            .build();
+        clusterState = ClusterState.builder(clusterState).routingTable(RoutingTable.of(routingNodes)).build();
 
         var ignored = randomBoolean()
             ? new ShardRouting[0]
             : new ShardRouting[] { clusterState.routingTable().index(TEST_INDEX).shard(0).primaryShard() };
 
         var desiredBalance = desiredBalanceComputer.compute(
-            DesiredBalance.INITIAL,
+            DesiredBalance.BECOME_MASTER_INITIAL,
             createInput(clusterState, ignored),
             queue(),
             input -> true
@@ -272,22 +275,26 @@ public class DesiredBalanceComputerTests extends ESAllocationTestCase {
             if (shardRouting.shardId().id() == 0 && shardRouting.primary()) {
                 switch (between(1, 3)) {
                     case 1 -> iterator.initialize("node-2", null, 0L, changes);
-                    case 2 -> routingNodes.startShard(logger, iterator.initialize("node-2", null, 0L, changes), changes, 0L);
+                    case 2 -> routingNodes.startShard(iterator.initialize("node-2", null, 0L, changes), changes, 0L);
                     case 3 -> routingNodes.relocateShard(
-                        routingNodes.startShard(logger, iterator.initialize("node-1", null, 0L, changes), changes, 0L),
+                        routingNodes.startShard(iterator.initialize("node-1", null, 0L, changes), changes, 0L),
                         "node-2",
                         0L,
+                        "test",
                         changes
                     );
                 }
                 break;
             }
         }
-        clusterState = ClusterState.builder(clusterState)
-            .routingTable(RoutingTable.of(clusterState.routingTable().version(), routingNodes))
-            .build();
+        clusterState = ClusterState.builder(clusterState).routingTable(RoutingTable.of(routingNodes)).build();
 
-        var desiredBalance = desiredBalanceComputer.compute(DesiredBalance.INITIAL, createInput(clusterState), queue(), input -> true);
+        var desiredBalance = desiredBalanceComputer.compute(
+            DesiredBalance.BECOME_MASTER_INITIAL,
+            createInput(clusterState),
+            queue(),
+            input -> true
+        );
 
         assertDesiredAssignments(
             desiredBalance,
@@ -310,7 +317,7 @@ public class DesiredBalanceComputerTests extends ESAllocationTestCase {
         for (var iterator = routingNodes.unassigned().iterator(); iterator.hasNext();) {
             var shardRouting = iterator.next();
             if (shardRouting.shardId().id() == 0 && shardRouting.primary()) {
-                routingNodes.startShard(logger, iterator.initialize("node-2", null, 0L, changes), changes, 0L);
+                routingNodes.startShard(iterator.initialize("node-2", null, 0L, changes), changes, 0L);
                 break;
             }
         }
@@ -320,22 +327,26 @@ public class DesiredBalanceComputerTests extends ESAllocationTestCase {
                 assert shardRouting.primary() == false;
                 switch (between(1, 3)) {
                     case 1 -> iterator.initialize("node-0", null, 0L, changes);
-                    case 2 -> routingNodes.startShard(logger, iterator.initialize("node-0", null, 0L, changes), changes, 0L);
+                    case 2 -> routingNodes.startShard(iterator.initialize("node-0", null, 0L, changes), changes, 0L);
                     case 3 -> routingNodes.relocateShard(
-                        routingNodes.startShard(logger, iterator.initialize("node-1", null, 0L, changes), changes, 0L),
+                        routingNodes.startShard(iterator.initialize("node-1", null, 0L, changes), changes, 0L),
                         "node-0",
                         0L,
+                        "test",
                         changes
                     );
                 }
                 break;
             }
         }
-        clusterState = ClusterState.builder(clusterState)
-            .routingTable(RoutingTable.of(clusterState.routingTable().version(), routingNodes))
-            .build();
+        clusterState = ClusterState.builder(clusterState).routingTable(RoutingTable.of(routingNodes)).build();
 
-        var desiredBalance = desiredBalanceComputer.compute(DesiredBalance.INITIAL, createInput(clusterState), queue(), input -> true);
+        var desiredBalance = desiredBalanceComputer.compute(
+            DesiredBalance.BECOME_MASTER_INITIAL,
+            createInput(clusterState),
+            queue(),
+            input -> true
+        );
 
         assertDesiredAssignments(
             desiredBalance,
@@ -365,18 +376,13 @@ public class DesiredBalanceComputerTests extends ESAllocationTestCase {
             var shardRouting = iterator.next();
             if (shardRouting.shardId().id() == 0 && shardRouting.primary()) {
                 routingAllocation.routingNodes()
-                    .startShard(
-                        logger,
-                        iterator.initialize("node-2", null, 0L, routingAllocation.changes()),
-                        routingAllocation.changes(),
-                        0L
-                    );
+                    .startShard(iterator.initialize("node-2", null, 0L, routingAllocation.changes()), routingAllocation.changes(), 0L);
                 break;
             }
         }
 
         var desiredBalance = desiredBalanceComputer.compute(
-            DesiredBalance.INITIAL,
+            DesiredBalance.BECOME_MASTER_INITIAL,
             DesiredBalanceInput.create(randomNonNegativeLong(), routingAllocation),
             queue(),
             input -> true
@@ -429,17 +435,19 @@ public class DesiredBalanceComputerTests extends ESAllocationTestCase {
         for (var iterator = desiredRoutingNodes.unassigned().iterator(); iterator.hasNext();) {
             var shardRouting = iterator.next();
             desiredRoutingNodes.startShard(
-                logger,
                 iterator.initialize(shardRouting.primary() ? "node-0" : "node-1", null, 0L, changes),
                 changes,
                 0L
             );
         }
-        clusterState = ClusterState.builder(clusterState)
-            .routingTable(RoutingTable.of(clusterState.routingTable().version(), desiredRoutingNodes))
-            .build();
+        clusterState = ClusterState.builder(clusterState).routingTable(RoutingTable.of(desiredRoutingNodes)).build();
 
-        var desiredBalance1 = desiredBalanceComputer.compute(DesiredBalance.INITIAL, createInput(clusterState), queue(), input -> true);
+        var desiredBalance1 = desiredBalanceComputer.compute(
+            DesiredBalance.BECOME_MASTER_INITIAL,
+            createInput(clusterState),
+            queue(),
+            input -> true
+        );
         assertDesiredAssignments(
             desiredBalance1,
             Map.of(
@@ -470,16 +478,12 @@ public class DesiredBalanceComputerTests extends ESAllocationTestCase {
                 if (shardRouting.shardId().getId() == shard && shardRouting.primary()) {
                     switch (primaryRoutingState) {
                         case INITIALIZING -> iterator.initialize(nodes.remove(0), null, 0L, changes);
-                        case STARTED -> randomRoutingNodes.startShard(
-                            logger,
-                            iterator.initialize(nodes.remove(0), null, 0L, changes),
-                            changes,
-                            0L
-                        );
+                        case STARTED -> randomRoutingNodes.startShard(iterator.initialize(nodes.remove(0), null, 0L, changes), changes, 0L);
                         case RELOCATING -> randomRoutingNodes.relocateShard(
-                            randomRoutingNodes.startShard(logger, iterator.initialize(nodes.remove(0), null, 0L, changes), changes, 0L),
+                            randomRoutingNodes.startShard(iterator.initialize(nodes.remove(0), null, 0L, changes), changes, 0L),
                             nodes.remove(0),
                             0L,
+                            "test",
                             changes
                         );
                     }
@@ -495,16 +499,12 @@ public class DesiredBalanceComputerTests extends ESAllocationTestCase {
                 if (shardRouting.shardId().getId() == shard && shardRouting.primary() == false) {
                     switch (replicaRoutingState) {
                         case INITIALIZING -> iterator.initialize(nodes.remove(0), null, 0L, changes);
-                        case STARTED -> randomRoutingNodes.startShard(
-                            logger,
-                            iterator.initialize(nodes.remove(0), null, 0L, changes),
-                            changes,
-                            0L
-                        );
+                        case STARTED -> randomRoutingNodes.startShard(iterator.initialize(nodes.remove(0), null, 0L, changes), changes, 0L);
                         case RELOCATING -> randomRoutingNodes.relocateShard(
-                            randomRoutingNodes.startShard(logger, iterator.initialize(nodes.remove(0), null, 0L, changes), changes, 0L),
+                            randomRoutingNodes.startShard(iterator.initialize(nodes.remove(0), null, 0L, changes), changes, 0L),
                             nodes.remove(0),
                             0L,
+                            "test",
                             changes
                         );
                     }
@@ -512,9 +512,7 @@ public class DesiredBalanceComputerTests extends ESAllocationTestCase {
                 }
             }
         }
-        clusterState = ClusterState.builder(clusterState)
-            .routingTable(RoutingTable.of(clusterState.routingTable().version(), randomRoutingNodes))
-            .build();
+        clusterState = ClusterState.builder(clusterState).routingTable(RoutingTable.of(randomRoutingNodes)).build();
 
         allocateCalled.set(false);
 
@@ -535,7 +533,12 @@ public class DesiredBalanceComputerTests extends ESAllocationTestCase {
         var desiredBalanceComputer = createDesiredBalanceComputer();
         var clusterState = createInitialClusterState(0);
 
-        var desiredBalance = desiredBalanceComputer.compute(DesiredBalance.INITIAL, createInput(clusterState), queue(), input -> true);
+        var desiredBalance = desiredBalanceComputer.compute(
+            DesiredBalance.BECOME_MASTER_INITIAL,
+            createInput(clusterState),
+            queue(),
+            input -> true
+        );
 
         assertDesiredAssignments(desiredBalance, Map.of());
     }
@@ -549,19 +552,12 @@ public class DesiredBalanceComputerTests extends ESAllocationTestCase {
         var routingNodes = clusterState.mutableRoutingNodes();
         for (var iterator = routingNodes.unassigned().iterator(); iterator.hasNext();) {
             var shardRouting = iterator.next();
-            routingNodes.startShard(
-                logger,
-                iterator.initialize(shardRouting.primary() ? "node-0" : "node-1", null, 0L, changes),
-                changes,
-                0L
-            );
+            routingNodes.startShard(iterator.initialize(shardRouting.primary() ? "node-0" : "node-1", null, 0L, changes), changes, 0L);
         }
-        clusterState = ClusterState.builder(clusterState)
-            .routingTable(RoutingTable.of(clusterState.routingTable().version(), routingNodes))
-            .build();
+        clusterState = ClusterState.builder(clusterState).routingTable(RoutingTable.of(routingNodes)).build();
 
         var desiredBalance = desiredBalanceComputer.compute(
-            DesiredBalance.INITIAL,
+            DesiredBalance.BECOME_MASTER_INITIAL,
             createInput(clusterState),
             queue(
                 new MoveAllocationCommand(index.getName(), 0, "node-1", "node-2"),
@@ -628,46 +624,39 @@ public class DesiredBalanceComputerTests extends ESAllocationTestCase {
 
             for (int shard = 0; shard < shards; shard++) {
                 var remainingNodeIds = new ArrayList<>(nodeIds);
-                remainingNodeIds.add(null);// disconnected node
                 var shardId = new ShardId(indexId, shard);
                 var thisShardSize = smallShardSizeDeviation(shardSize);
 
                 var primaryNodeId = pickAndRemoveRandomValueFrom(remainingNodeIds);
                 shardSizes.put(shardIdentifierFromRouting(shardId, true), thisShardSize);
                 totalShardsSize += thisShardSize;
-                if (primaryNodeId != null) {
-                    dataPath.put(new NodeAndShard(primaryNodeId, shardId), "/data");
-                    usedDiskSpace.compute(primaryNodeId, (k, v) -> v + thisShardSize);
-                }
-
+                dataPath.put(new NodeAndShard(primaryNodeId, shardId), "/data");
+                usedDiskSpace.compute(primaryNodeId, (k, v) -> v + thisShardSize);
+                var primaryState = randomIntBetween(0, 9) == 0 ? INITIALIZING : STARTED;
                 indexRoutingTableBuilder.addShard(
-                    newShardRouting(
-                        shardId,
-                        primaryNodeId,
-                        null,
-                        true,
-                        primaryNodeId == null ? UNASSIGNED : STARTED,
+                    shardRoutingBuilder(shardId, primaryNodeId, true, primaryState).withAllocationId(
                         AllocationId.newInitializing(inSyncIds.get(shard * (replicas + 1)))
-                    )
+                    ).build()
                 );
+
+                remainingNodeIds.add(null);// to simulate unassigned shard
                 for (int replica = 0; replica < replicas; replica++) {
-                    var replicaNodeId = primaryNodeId == null ? null : pickAndRemoveRandomValueFrom(remainingNodeIds);
+                    var replicaNodeId = pickAndRemoveRandomValueFrom(remainingNodeIds);
                     shardSizes.put(shardIdentifierFromRouting(shardId, false), thisShardSize);
                     totalShardsSize += thisShardSize;
                     if (replicaNodeId != null) {
                         dataPath.put(new NodeAndShard(replicaNodeId, shardId), "/data");
                         usedDiskSpace.compute(replicaNodeId, (k, v) -> v + thisShardSize);
                     }
-
+                    var replicaState = randomIntBetween(0, 9) == 0 ? INITIALIZING : STARTED;
+                    if (primaryState == INITIALIZING || replicaNodeId == null) {
+                        replicaState = UNASSIGNED;
+                        replicaNodeId = null;
+                    }
                     indexRoutingTableBuilder.addShard(
-                        newShardRouting(
-                            shardId,
-                            replicaNodeId,
-                            null,
-                            false,
-                            replicaNodeId == null ? UNASSIGNED : STARTED,
+                        shardRoutingBuilder(shardId, replicaNodeId, false, replicaState).withAllocationId(
                             AllocationId.newInitializing(inSyncIds.get(shard * (replicas + 1) + 1 + replica))
-                        )
+                        ).build()
                     );
                 }
 
@@ -698,7 +687,7 @@ public class DesiredBalanceComputerTests extends ESAllocationTestCase {
 
         var input = new DesiredBalanceInput(randomInt(), routingAllocationWithDecidersOf(clusterState, clusterInfo, settings), List.of());
         var desiredBalance = createDesiredBalanceComputer(new BalancedShardsAllocator(settings)).compute(
-            DesiredBalance.INITIAL,
+            DesiredBalance.BECOME_MASTER_INITIAL,
             input,
             queue(),
             ignored -> iteration.incrementAndGet() < 1000
@@ -903,10 +892,13 @@ public class DesiredBalanceComputerTests extends ESAllocationTestCase {
                 ShardId index2ShardId = shardIdFrom(indexMetadata2, 0);
                 routingTableBuilder.add(
                     IndexRoutingTable.builder(indexMetadata2.getIndex())
-                        .addShard(newShardRouting(index2ShardId, "node-1", true, INITIALIZING, index2SnapshotRecoverySource))
+                        .addShard(
+                            shardRoutingBuilder(index2ShardId, "node-1", true, INITIALIZING).withRecoverySource(
+                                index2SnapshotRecoverySource
+                            ).build()
+                        )
                 );
-                // TODO enable in https://github.com/elastic/elasticsearch/pull/103903
-                if (false && randomBoolean()) {
+                if (randomBoolean()) {
                     // Shard is 75% downloaded
                     clusterInfoBuilder //
                         .withNodeUsedSpace("node-1", ByteSizeValue.ofMb(768).getBytes())
@@ -918,10 +910,13 @@ public class DesiredBalanceComputerTests extends ESAllocationTestCase {
                 ShardId index2ShardId = shardIdFrom(indexMetadata2, 0);
                 routingTableBuilder.add(
                     IndexRoutingTable.builder(indexMetadata2.getIndex())
-                        .addShard(newShardRouting(index2ShardId, "node-2", true, INITIALIZING, index2SnapshotRecoverySource))
+                        .addShard(
+                            shardRoutingBuilder(index2ShardId, "node-2", true, INITIALIZING).withRecoverySource(
+                                index2SnapshotRecoverySource
+                            ).build()
+                        )
                 );
-                // TODO enable in https://github.com/elastic/elasticsearch/pull/103903
-                if (false && randomBoolean()) {
+                if (randomBoolean()) {
                     // Shard is 75% downloaded
                     clusterInfoBuilder //
                         .withNodeUsedSpace("node-2", ByteSizeValue.ofMb(768).getBytes())
@@ -1156,12 +1151,6 @@ public class DesiredBalanceComputerTests extends ESAllocationTestCase {
         );
     }
 
-    @Deprecated
-    private static ClusterInfo createClusterInfo(List<DiskUsage> diskUsages, Map<String, Long> shardSizes) {
-        var diskUsage = diskUsages.stream().collect(toMap(DiskUsage::getNodeId, Function.identity()));
-        return new ClusterInfo(diskUsage, diskUsage, shardSizes, Map.of(), Map.of(), Map.of());
-    }
-
     private static class ClusterInfoTestBuilder {
 
         private final Map<String, DiskUsage> diskUsage = new HashMap<>();
@@ -1208,7 +1197,7 @@ public class DesiredBalanceComputerTests extends ESAllocationTestCase {
         checkIterationLogging(
             999,
             10L,
-            new MockLogAppender.UnseenEventExpectation(
+            new MockLog.UnseenEventExpectation(
                 "Should not report long computation too early",
                 DesiredBalanceComputer.class.getCanonicalName(),
                 Level.INFO,
@@ -1219,7 +1208,7 @@ public class DesiredBalanceComputerTests extends ESAllocationTestCase {
         checkIterationLogging(
             1001,
             10L,
-            new MockLogAppender.SeenEventExpectation(
+            new MockLog.SeenEventExpectation(
                 "Should report long computation based on iteration count",
                 DesiredBalanceComputer.class.getCanonicalName(),
                 Level.INFO,
@@ -1230,7 +1219,7 @@ public class DesiredBalanceComputerTests extends ESAllocationTestCase {
         checkIterationLogging(
             61,
             1000L,
-            new MockLogAppender.SeenEventExpectation(
+            new MockLog.SeenEventExpectation(
                 "Should report long computation based on time",
                 DesiredBalanceComputer.class.getCanonicalName(),
                 Level.INFO,
@@ -1239,13 +1228,16 @@ public class DesiredBalanceComputerTests extends ESAllocationTestCase {
         );
     }
 
-    private void checkIterationLogging(int iterations, long eachIterationDuration, MockLogAppender.AbstractEventExpectation expectation) {
-
-        var mockThreadPool = mock(ThreadPool.class);
+    private void checkIterationLogging(int iterations, long eachIterationDuration, MockLog.AbstractEventExpectation expectation) {
         var currentTime = new AtomicLong(0L);
-        when(mockThreadPool.relativeTimeInMillis()).thenAnswer(invocation -> currentTime.addAndGet(eachIterationDuration));
+        TimeProvider timeProvider = TimeProviderUtils.create(() -> currentTime.addAndGet(eachIterationDuration));
 
-        var desiredBalanceComputer = new DesiredBalanceComputer(createBuiltInClusterSettings(), mockThreadPool, new ShardsAllocator() {
+        // Some runs of this test try to simulate a long desired balance computation. Setting a high value on the following setting
+        // prevents interrupting a long computation.
+        var clusterSettings = createBuiltInClusterSettings(
+            Settings.builder().put(DesiredBalanceComputer.MAX_BALANCE_COMPUTATION_TIME_DURING_INDEX_CREATION_SETTING.getKey(), "2m").build()
+        );
+        var desiredBalanceComputer = new DesiredBalanceComputer(clusterSettings, timeProvider, new ShardsAllocator() {
             @Override
             public void allocate(RoutingAllocation allocation) {
                 final var unassignedIterator = allocation.routingNodes().unassigned().iterator();
@@ -1260,10 +1252,10 @@ public class DesiredBalanceComputerTests extends ESAllocationTestCase {
 
                 // move shard on each iteration
                 for (var shard : allocation.routingNodes().node("node-0").shardsWithState(STARTED).toList()) {
-                    allocation.routingNodes().relocateShard(shard, "node-1", 0L, allocation.changes());
+                    allocation.routingNodes().relocateShard(shard, "node-1", 0L, "test", allocation.changes());
                 }
                 for (var shard : allocation.routingNodes().node("node-1").shardsWithState(STARTED).toList()) {
-                    allocation.routingNodes().relocateShard(shard, "node-0", 0L, allocation.changes());
+                    allocation.routingNodes().relocateShard(shard, "node-0", 0L, "test", allocation.changes());
                 }
             }
 
@@ -1276,16 +1268,12 @@ public class DesiredBalanceComputerTests extends ESAllocationTestCase {
         assertThatLogger(() -> {
             var iteration = new AtomicInteger(0);
             desiredBalanceComputer.compute(
-                DesiredBalance.INITIAL,
+                DesiredBalance.BECOME_MASTER_INITIAL,
                 createInput(createInitialClusterState(3)),
                 queue(),
                 input -> iteration.incrementAndGet() < iterations
             );
         }, DesiredBalanceComputer.class, expectation);
-    }
-
-    private static Map.Entry<String, Long> indexSize(ClusterState clusterState, String name, long size, boolean primary) {
-        return Map.entry(shardIdentifierFromRouting(findShardId(clusterState, name), primary), size);
     }
 
     private static ShardId findShardId(ClusterState clusterState, String name) {
@@ -1329,20 +1317,20 @@ public class DesiredBalanceComputerTests extends ESAllocationTestCase {
             var unassignedInfo = shardRouting.unassignedInfo();
             return shardRouting.updateUnassigned(
                 new UnassignedInfo(
-                    unassignedInfo.getReason(),
-                    unassignedInfo.getMessage(),
-                    unassignedInfo.getFailure(),
-                    unassignedInfo.getNumFailedAllocations(),
-                    unassignedInfo.getUnassignedTimeInNanos(),
-                    unassignedInfo.getUnassignedTimeInMillis(),
-                    unassignedInfo.isDelayed(),
+                    unassignedInfo.reason(),
+                    unassignedInfo.message(),
+                    unassignedInfo.failure(),
+                    unassignedInfo.failedAllocations(),
+                    unassignedInfo.unassignedTimeNanos(),
+                    unassignedInfo.unassignedTimeMillis(),
+                    unassignedInfo.delayed(),
                     randomFrom(
                         UnassignedInfo.AllocationStatus.DECIDERS_NO,
                         UnassignedInfo.AllocationStatus.NO_ATTEMPT,
                         UnassignedInfo.AllocationStatus.DECIDERS_THROTTLED
                     ),
-                    unassignedInfo.getFailedNodeIds(),
-                    unassignedInfo.getLastAllocatedNodeId()
+                    unassignedInfo.failedNodeIds(),
+                    unassignedInfo.lastAllocatedNodeId()
                 ),
                 shardRouting.recoverySource()
             );
@@ -1383,7 +1371,7 @@ public class DesiredBalanceComputerTests extends ESAllocationTestCase {
     }
 
     private static DesiredBalanceComputer createDesiredBalanceComputer(ShardsAllocator allocator) {
-        return new DesiredBalanceComputer(createBuiltInClusterSettings(), mock(ThreadPool.class), allocator);
+        return new DesiredBalanceComputer(createBuiltInClusterSettings(), TimeProviderUtils.create(() -> 0L), allocator);
     }
 
     private static void assertDesiredAssignments(DesiredBalance desiredBalance, Map<ShardId, ShardAssignment> expected) {
